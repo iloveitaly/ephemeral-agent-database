@@ -13,7 +13,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = Field(..., description="Superuser connection to a postgres server.")
+    database_url: str = Field(
+        ..., description="Superuser connection to a postgres server."
+    )
     redis_url: str = Field(..., description="Admin connection to a redis server.")
     http_basic_auth: str = Field(..., description="Format: 'username:password'.")
 
@@ -21,10 +23,14 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_auth(cls, v: str) -> str:
         if ":" not in v:
-            raise ValueError("HTTP_BASIC_AUTH must contain a colon separating username and password")
+            raise ValueError(
+                "HTTP_BASIC_AUTH must contain a colon separating username and password"
+            )
         username, _, password = v.partition(":")
         if not username or not password:
-            raise ValueError("HTTP_BASIC_AUTH username and password must both be non-empty")
+            raise ValueError(
+                "HTTP_BASIC_AUTH username and password must both be non-empty"
+            )
         return v
 
     @cached_property

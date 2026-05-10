@@ -2,7 +2,7 @@
 
 from urllib.parse import urlparse
 
-from app.urls import (
+from ephemeral_agent_database.urls import (
     postgres_url_with_credentials,
     postgres_url_with_db,
     redis_url_with_credentials,
@@ -33,6 +33,7 @@ def test_postgres_url_with_credentials_swaps_user_pw_and_db():
 
 def test_postgres_url_with_credentials_escapes_special_chars():
     from urllib.parse import unquote
+
     url = "postgresql://admin:adminpw@host:5432/postgres"
     new = postgres_url_with_credentials(url, "db", "user", "p@ss:word/with?chars")
     parsed = urlparse(new)

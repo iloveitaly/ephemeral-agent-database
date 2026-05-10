@@ -11,7 +11,9 @@ def postgres_url_with_db(url: str, db_name: str) -> str:
     return urlunparse(parsed._replace(path=f"/{db_name}"))
 
 
-def postgres_url_with_credentials(url: str, db_name: str, user: str, password: str) -> str:
+def postgres_url_with_credentials(
+    url: str, db_name: str, user: str, password: str
+) -> str:
     """Return a copy of `url` with user/password/db swapped for the client."""
     parsed = urlparse(url)
     host = parsed.hostname or ""
@@ -20,7 +22,9 @@ def postgres_url_with_credentials(url: str, db_name: str, user: str, password: s
     return urlunparse(parsed._replace(netloc=netloc, path=f"/{db_name}"))
 
 
-def redis_url_with_credentials(url: str, db_number: int, user: str, password: str) -> str:
+def redis_url_with_credentials(
+    url: str, db_number: int, user: str, password: str
+) -> str:
     """Return a copy of `url` with ACL user/password/db swapped for the client.
 
     Redis URLs carry the DB as a path: redis://host:port/<db>.

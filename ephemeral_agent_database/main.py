@@ -11,37 +11,41 @@ Shutdown reverses this.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from app.cleanup import Cleanup
-from app.config import Settings, load_settings
-from app.constants import (
+
+from ephemeral_agent_database.cleanup import Cleanup
+from ephemeral_agent_database.config import Settings, load_settings
+from ephemeral_agent_database.constants import (
     DEFAULT_TTL_HOURS,
     MAX_TTL_HOURS,
     RESOURCE_PREFIX,
 )
-from app.control import Control
-from app.logging_config import configure_logging
-from app.models import (
+from ephemeral_agent_database.control import Control
+from ephemeral_agent_database.logging_config import configure_logging
+from ephemeral_agent_database.models import (
     HealthResponse,
     ProvisionRequest,
     ProvisionResponse,
     ProvisionStatus,
     ProvisionSummary,
 )
-from app.naming import (
+from ephemeral_agent_database.naming import (
     generate_short_id,
     pg_db_name,
     pg_role_name,
     redis_user_name,
 )
-from app.provisioners.postgres import PostgresProvisioner
-from app.provisioners.redis import RedisProvisioner
-from app.urls import postgres_url_with_credentials, redis_url_with_credentials
+from ephemeral_agent_database.provisioners.postgres import PostgresProvisioner
+from ephemeral_agent_database.provisioners.redis import RedisProvisioner
+from ephemeral_agent_database.urls import (
+    postgres_url_with_credentials,
+    redis_url_with_credentials,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -97,6 +101,7 @@ app = FastAPI(
 
 # ---------- dependencies ----------
 
+
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -123,6 +128,7 @@ async def require_auth(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> str:
     import secrets as _secrets
+
     given_u = credentials.username.encode("utf-8")
     given_p = credentials.password.encode("utf-8")
     expected_u = settings.auth_username.encode("utf-8")
@@ -139,6 +145,7 @@ async def require_auth(
 
 
 # ---------- routes ----------
+
 
 @app.get("/healthcheck", response_model=HealthResponse)
 async def healthcheck(
@@ -157,7 +164,7 @@ async def healthcheck(
         redis_reachable=redis_ok,
         active_provisions=active,
         redis_max_dbs=request.app.state.redis_max_dbs,
-        now=datetime.now(timezone.utc),
+        now=datetime.now(UTC),
     )
 
 
@@ -185,7 +192,7 @@ async def provision(
     db_name = pg_db_name(RESOURCE_PREFIX, short_id)
     role_name = pg_role_name(RESOURCE_PREFIX, short_id)
     user_name = redis_user_name(RESOURCE_PREFIX, short_id)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+    expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
 
     # 1. Insert pending row.
     row = await control.insert_pending(
@@ -210,7 +217,7 @@ async def provision(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"failed to provision postgres: {e}",
-        )
+        ) from e
 
     # 3. Create redis ACL user (key-prefix isolation on shared DB 0).
     try:
@@ -226,7 +233,7 @@ async def provision(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"failed to provision redis: {e}",
-        )
+        ) from e
 
     # 4. Flip the row to active.
     await control.mark_active(row.id)
@@ -288,7 +295,7 @@ async def get_provision(
     try:
         uid = UUID(provision_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="invalid provision id")
+        raise HTTPException(status_code=400, detail="invalid provision id") from None
     row = await control.get(uid)
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -310,15 +317,13 @@ async def release_provision(
     try:
         uid = UUID(provision_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="invalid provision id")
+        raise HTTPException(status_code=400, detail="invalid provision id") from None
     row = await control.get(uid)
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
     if row.status in (ProvisionStatus.RELEASING, ProvisionStatus.CLEANED):
         return _to_summary(row)
-    await control.mark_releasing(
-        uid, released_at=datetime.now(timezone.utc)
-    )
+    await control.mark_releasing(uid, released_at=datetime.now(UTC))
     fresh = await control.get(uid)
     assert fresh is not None
     return _to_summary(fresh)

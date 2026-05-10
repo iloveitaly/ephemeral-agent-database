@@ -16,18 +16,18 @@ Reconcile (runs once at startup):
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
-from app.constants import (
+from ephemeral_agent_database.constants import (
     CLEANUP_INTERVAL_SECONDS,
     PROVISION_PENDING_TIMEOUT_SECONDS,
 )
-from app.control import Control
-from app.models import ProvisionRow, ProvisionStatus
-from app.provisioners.postgres import PostgresProvisioner
-from app.provisioners.redis import RedisProvisioner
+from ephemeral_agent_database.control import Control
+from ephemeral_agent_database.models import ProvisionRow, ProvisionStatus
+from ephemeral_agent_database.provisioners.postgres import PostgresProvisioner
+from ephemeral_agent_database.provisioners.redis import RedisProvisioner
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +68,7 @@ class Cleanup:
                 await asyncio.wait_for(
                     self._stop.wait(), timeout=CLEANUP_INTERVAL_SECONDS
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def run_once(self) -> int:
@@ -92,9 +92,7 @@ class Cleanup:
 
         # Transition to 'releasing' the first time we touch a row.
         if row.status in (ProvisionStatus.ACTIVE, ProvisionStatus.PENDING):
-            await self.control.mark_releasing(
-                row.id, released_at=datetime.now(timezone.utc)
-            )
+            await self.control.mark_releasing(row.id, released_at=datetime.now(UTC))
 
         # Tear down postgres if not already done.
         if row.pg_dropped_at is None:
@@ -132,9 +130,11 @@ class Cleanup:
           (b) has a control row that's already past the resource's expected lifetime.
         We use list_live_resource_names to get (a).
         """
-        pg_expected, role_expected, redis_expected = (
-            await self.control.list_live_resource_names()
-        )
+        (
+            pg_expected,
+            role_expected,
+            redis_expected,
+        ) = await self.control.list_live_resource_names()
 
         # Postgres orphans
         try:
@@ -145,7 +145,9 @@ class Cleanup:
                 # We may not know the matching role name. Drop the DB; the role
                 # may be attached to nothing and will be swept below.
                 try:
-                    await self.postgres.release(db_name, role_name=_guess_role_for_db(db_name))
+                    await self.postgres.release(
+                        db_name, role_name=_guess_role_for_db(db_name)
+                    )
                     logger.info("reconcile_pg_orphan_dropped", db=db_name)
                 except Exception:
                     logger.exception("reconcile_pg_orphan_failed", db=db_name)
@@ -180,7 +182,8 @@ def _guess_role_for_db(db_name: str) -> str:
     where we've lost the control-row linkage.
     """
     # ephemeral_<id> -> ephemeral_user_<id>
-    from app.constants import RESOURCE_PREFIX
+    from ephemeral_agent_database.constants import RESOURCE_PREFIX
+
     if db_name.startswith(f"{RESOURCE_PREFIX}_"):
         short_id = db_name[len(RESOURCE_PREFIX) + 1 :]
         return f"{RESOURCE_PREFIX}_user_{short_id}"
@@ -190,7 +193,10 @@ def _guess_role_for_db(db_name: str) -> str:
 async def _drop_role_only(postgres: PostgresProvisioner, role_name: str) -> None:
     from psycopg import AsyncConnection
     from psycopg.sql import SQL, Identifier
-    async with await AsyncConnection.connect(postgres.superuser_url, autocommit=True) as conn:
+
+    async with await AsyncConnection.connect(
+        postgres.superuser_url, autocommit=True
+    ) as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 SQL("DROP ROLE IF EXISTS {role}").format(role=Identifier(role_name))

@@ -2,15 +2,15 @@
 
 import pytest
 
-from app.config import Settings
+from ephemeral_agent_database.config import Settings
 
 
 def _make(**overrides):
-    defaults = dict(
-        database_url="postgresql://x:y@z/db",
-        redis_url="redis://r",
-        http_basic_auth="admin:pw",
-    )
+    defaults = {
+        "database_url": "postgresql://x:y@z/db",
+        "redis_url": "redis://r",
+        "http_basic_auth": "admin:pw",
+    }
     defaults.update(overrides)
     return Settings(**defaults)  # type: ignore[arg-type]
 

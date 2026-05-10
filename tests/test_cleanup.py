@@ -1,15 +1,14 @@
 """Integration tests for the Cleanup coordinator (loop + reconcile)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
 from psycopg import AsyncConnection
-from psycopg.sql import SQL, Identifier
 
-from app.cleanup import Cleanup
-from app.models import ProvisionStatus
-from app.naming import pg_db_name, pg_role_name, redis_user_name
+from ephemeral_agent_database.cleanup import Cleanup
+from ephemeral_agent_database.models import ProvisionStatus
+from ephemeral_agent_database.naming import pg_db_name, pg_role_name, redis_user_name
 
 
 @pytest_asyncio.fixture
@@ -19,11 +18,11 @@ async def cleanup(control, postgres_provisioner, redis_provisioner):
 
 
 def _future(hours: int = 1) -> datetime:
-    return datetime.now(timezone.utc) + timedelta(hours=hours)
+    return datetime.now(UTC) + timedelta(hours=hours)
 
 
 def _past(seconds: int = 10) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    return datetime.now(UTC) - timedelta(seconds=seconds)
 
 
 async def _full_provision(
@@ -51,8 +50,12 @@ async def test_cleanup_releases_expired_active_row(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix, pg_url
 ):
     row, db, role, user = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _past()
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _past(),
     )
 
     processed = await cleanup.run_once()
@@ -78,8 +81,12 @@ async def test_cleanup_is_idempotent_across_passes(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix
 ):
     row, *_ = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _past()
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _past(),
     )
 
     assert await cleanup.run_once() == 1
@@ -95,8 +102,12 @@ async def test_cleanup_leaves_fresh_active_rows_alone(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix
 ):
     row, *_ = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _future(hours=24)
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _future(hours=24),
     )
 
     assert await cleanup.run_once() == 0
@@ -111,10 +122,14 @@ async def test_cleanup_processes_releasing_row(
 ):
     """Simulates the DELETE /provisions/{id} user-triggered release path."""
     row, *_ = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _future(hours=24)
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _future(hours=24),
     )
-    await control.mark_releasing(row.id, released_at=datetime.now(timezone.utc))
+    await control.mark_releasing(row.id, released_at=datetime.now(UTC))
 
     assert await cleanup.run_once() == 1
 
@@ -130,8 +145,12 @@ async def test_cleanup_retries_partial_failure(
     a subsequent pass completes the redis side.
     """
     row, db, role, user = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _past()
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _past(),
     )
 
     # Break redis temporarily: drop the redis user out-of-band so cleanup will
@@ -175,9 +194,13 @@ async def test_reconcile_drops_pg_orphan(
 
     async with await AsyncConnection.connect(pg_url, autocommit=True) as conn:
         async with conn.cursor() as cur:
-            await cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (orphan_db,))
+            await cur.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (orphan_db,)
+            )
             assert await cur.fetchone() is None
-            await cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (orphan_role,))
+            await cur.execute(
+                "SELECT 1 FROM pg_roles WHERE rolname = %s", (orphan_role,)
+            )
             assert await cur.fetchone() is None
 
 
@@ -206,8 +229,12 @@ async def test_reconcile_leaves_live_resources_alone(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix, pg_url
 ):
     row, db, role, user = await _full_provision(
-        postgres_provisioner, redis_provisioner, control,
-        "aaaaaaaaaa", unique_prefix, _future(hours=24)
+        postgres_provisioner,
+        redis_provisioner,
+        control,
+        "aaaaaaaaaa",
+        unique_prefix,
+        _future(hours=24),
     )
 
     await cleanup.reconcile()

@@ -6,7 +6,7 @@ import pytest
 import redis.asyncio as aioredis
 import redis.exceptions
 
-from app.naming import redis_user_name
+from ephemeral_agent_database.naming import redis_user_name
 
 
 def _tenant_url(admin_url: str, user: str, password: str) -> str:
@@ -152,7 +152,9 @@ async def test_release_unlinks_tenant_keys_and_deletes_user(
         found = []
         cursor = 0
         while True:
-            cursor, batch = await admin.scan(cursor=cursor, match=f"{creds.key_prefix}*", count=100)
+            cursor, batch = await admin.scan(
+                cursor=cursor, match=f"{creds.key_prefix}*", count=100
+            )
             found.extend(batch)
             if cursor == 0:
                 break
@@ -170,7 +172,9 @@ async def test_release_unlinks_tenant_keys_and_deletes_user(
         found = []
         cursor = 0
         while True:
-            cursor, batch = await admin.scan(cursor=cursor, match=f"{creds.key_prefix}*", count=100)
+            cursor, batch = await admin.scan(
+                cursor=cursor, match=f"{creds.key_prefix}*", count=100
+            )
             found.extend(batch)
             if cursor == 0:
                 break

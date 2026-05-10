@@ -1,11 +1,19 @@
 [project]
 name = "ephemeral-agent-database"
 version = "0.1.0"
-description = ""
-keywords = []
+description = "A FastAPI service that provisions short-lived PostgreSQL databases and Redis logical users for preview environments, with automatic cleanup."
+keywords = ["postgres", "redis", "preview-environments", "testing"]
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+    "psycopg[binary,pool]>=3.2",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "redis>=5.2",
+    "structlog>=24.4",
+    "uvicorn[standard]>=0.32",
+]
 authors = [{ name = "Michael Bianco", email = "mike@mikebian.co" }]
 urls = { "Repository" = "https://github.com/iloveitaly/ephemeral-agent-database" }
 
@@ -31,6 +39,9 @@ dev = [
     "coverage>=7.13.4",
     "pytest-cov>=7.0.0",
     "covdefaults>=2.3.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "testcontainers[postgres,redis]>=4.8",
 ]
 
 [tool.pyright]

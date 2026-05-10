@@ -19,13 +19,12 @@ Model:
 """
 
 import secrets
-from typing import Optional
 
 import redis.asyncio as aioredis
 import redis.exceptions
 import structlog
 
-from app.constants import RESOURCE_PREFIX
+from ephemeral_agent_database.constants import RESOURCE_PREFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -72,11 +71,11 @@ _UNLINK_BATCH = 500
 class RedisProvisioner:
     def __init__(self, admin_url: str):
         self.admin_url = admin_url
-        self._client: Optional[aioredis.Redis] = None
+        self._client: aioredis.Redis | None = None
 
     async def init(self) -> None:
         self._client = aioredis.from_url(self.admin_url, decode_responses=True)
-        await self._client.ping()
+        await self._client.execute_command("PING")
 
     async def close(self) -> None:
         if self._client is not None:
@@ -106,11 +105,12 @@ class RedisProvisioner:
         channel_pattern = f"&{user}:*"
 
         args = [
-            "SETUSER", user,
+            "SETUSER",
+            user,
             "on",
             f">{password}",
-            "resetkeys",        # clear any inherited key patterns
-            "resetchannels",    # clear any inherited channel patterns
+            "resetkeys",  # clear any inherited key patterns
+            "resetchannels",  # clear any inherited channel patterns
             key_pattern,
             channel_pattern,
             "+@all",
@@ -157,7 +157,7 @@ class RedisProvisioner:
     async def list_orphan_users(self, expected_users: set[str]) -> set[str]:
         """`ephemeral_*` ACL users NOT present in `expected_users`."""
         assert self._client is not None
-        all_users = await self._client.execute_command("ACL", "USERS")
+        all_users = await self._client.execute_command("ACL", "USERS") or []
         prefix = f"{RESOURCE_PREFIX}_"
         existing = {u for u in all_users if isinstance(u, str) and u.startswith(prefix)}
         return existing - expected_users
@@ -174,7 +174,7 @@ class RedisProvisioner:
     async def ping(self) -> bool:
         try:
             assert self._client is not None
-            await self._client.ping()
+            await self._client.execute_command("PING")
             return True
         except (redis.exceptions.RedisError, AssertionError):
             return False

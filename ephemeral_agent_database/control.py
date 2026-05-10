@@ -9,7 +9,6 @@ so concurrent provisions never race for the same slot.
 """
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 import psycopg
@@ -19,9 +18,9 @@ from psycopg.rows import dict_row
 from psycopg.sql import SQL, Identifier
 from psycopg_pool import AsyncConnectionPool
 
-from app.constants import CONTROL_DB_NAME
-from app.models import ProvisionRow, ProvisionStatus
-from app.urls import postgres_url_with_db
+from ephemeral_agent_database.constants import CONTROL_DB_NAME
+from ephemeral_agent_database.models import ProvisionRow, ProvisionStatus
+from ephemeral_agent_database.urls import postgres_url_with_db
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +31,7 @@ class Control:
     def __init__(self, superuser_url: str):
         self.superuser_url = superuser_url
         self.control_url = postgres_url_with_db(superuser_url, CONTROL_DB_NAME)
-        self.pool: Optional[AsyncConnectionPool] = None
+        self.pool: AsyncConnectionPool | None = None
 
     async def init(self) -> None:
         await self._ensure_control_db()
@@ -55,7 +54,9 @@ class Control:
 
     async def _ensure_control_db(self) -> None:
         """Connect to the server-default DB and create the control DB if missing."""
-        async with await AsyncConnection.connect(self.superuser_url, autocommit=True) as conn:
+        async with await AsyncConnection.connect(
+            self.superuser_url, autocommit=True
+        ) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     "SELECT 1 FROM pg_database WHERE datname = %s",
@@ -68,7 +69,9 @@ class Control:
                     logger.info("control_db_created", name=CONTROL_DB_NAME)
 
     async def _ensure_schema(self) -> None:
-        async with await AsyncConnection.connect(self.control_url, autocommit=True) as conn:
+        async with await AsyncConnection.connect(
+            self.control_url, autocommit=True
+        ) as conn:
             async with conn.cursor() as cur:
                 await cur.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
                 await cur.execute(
@@ -152,7 +155,7 @@ class Control:
         await self._set_status(provision_id, ProvisionStatus.ACTIVE)
 
     async def mark_releasing(
-        self, provision_id: UUID, released_at: Optional[datetime] = None
+        self, provision_id: UUID, released_at: datetime | None = None
     ) -> None:
         assert self.pool is not None
         async with self.pool.connection() as conn:
@@ -208,11 +211,13 @@ class Control:
 
     # ----- queries -----
 
-    async def get(self, provision_id: UUID) -> Optional[ProvisionRow]:
+    async def get(self, provision_id: UUID) -> ProvisionRow | None:
         assert self.pool is not None
         async with self.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute("SELECT * FROM provisions WHERE id = %s", (provision_id,))
+                await cur.execute(
+                    "SELECT * FROM provisions WHERE id = %s", (provision_id,)
+                )
                 row = await cur.fetchone()
                 return _row_to_provision(row) if row else None
 
@@ -220,9 +225,7 @@ class Control:
         assert self.pool is not None
         async with self.pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(
-                    "SELECT * FROM provisions ORDER BY created_at DESC"
-                )
+                await cur.execute("SELECT * FROM provisions ORDER BY created_at DESC")
                 rows = await cur.fetchall()
                 return [_row_to_provision(r) for r in rows]
 
@@ -240,9 +243,9 @@ class Control:
         self, pending_timeout_seconds: int
     ) -> list[ProvisionRow]:
         """Rows the cleanup loop acts on:
-         - active + expires_at < now()                 -> expired
-         - releasing                                    -> in-flight or prior pass
-         - pending + created_at older than timeout      -> failed provision
+        - active + expires_at < now()                 -> expired
+        - releasing                                    -> in-flight or prior pass
+        - pending + created_at older than timeout      -> failed provision
         """
         assert self.pool is not None
         async with self.pool.connection() as conn:
@@ -277,8 +280,12 @@ class Control:
                 )
                 rows = await cur.fetchall()
                 pg_dbs = {r["pg_db_name"] for r in rows if r["pg_dropped_at"] is None}
-                pg_roles = {r["pg_role_name"] for r in rows if r["pg_dropped_at"] is None}
-                redis_users = {r["redis_user_name"] for r in rows if r["redis_cleaned_at"] is None}
+                pg_roles = {
+                    r["pg_role_name"] for r in rows if r["pg_dropped_at"] is None
+                }
+                redis_users = {
+                    r["redis_user_name"] for r in rows if r["redis_cleaned_at"] is None
+                }
                 return pg_dbs, pg_roles, redis_users
 
     async def ping(self) -> bool:

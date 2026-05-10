@@ -9,7 +9,6 @@ We override the app's settings via env vars before the lifespan runs.
 
 import base64
 import os
-from urllib.parse import urlparse
 
 import psycopg
 import pytest
@@ -17,12 +16,11 @@ import pytest_asyncio
 import redis.asyncio as aioredis
 from httpx import ASGITransport, AsyncClient
 
-
 TEST_USERNAME = "admin"
 TEST_PASSWORD = "dev"
-AUTH_HEADER = "Basic " + base64.b64encode(
-    f"{TEST_USERNAME}:{TEST_PASSWORD}".encode()
-).decode()
+AUTH_HEADER = (
+    "Basic " + base64.b64encode(f"{TEST_USERNAME}:{TEST_PASSWORD}".encode()).decode()
+)
 
 
 @pytest_asyncio.fixture
@@ -38,13 +36,13 @@ async def api_client(pg_url, redis_url, clean_environment):
 
     # Force a re-import so settings are rebuilt against the new env.
     import importlib
-    import app.main as main_module
+
+    import ephemeral_agent_database.main as main_module
+
     importlib.reload(main_module)
 
     transport = ASGITransport(app=main_module.app)
-    async with AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as client:
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         # Drive lifespan startup
         async with main_module.app.router.lifespan_context(main_module.app):
             yield client
@@ -80,7 +78,9 @@ async def test_provision_rejects_wrong_password(api_client):
 
 
 @pytest.mark.asyncio
-async def test_provision_happy_path_returns_usable_credentials(api_client, pg_url, redis_url):
+async def test_provision_happy_path_returns_usable_credentials(
+    api_client, pg_url, redis_url
+):
     r = await api_client.post(
         "/provision", json={"ttl_hours": 1}, headers={"Authorization": AUTH_HEADER}
     )
@@ -96,7 +96,9 @@ async def test_provision_happy_path_returns_usable_credentials(api_client, pg_ur
     assert "expires_at" in body
 
     # The returned DATABASE_URL actually works
-    async with await psycopg.AsyncConnection.connect(body["database_url"], autocommit=True) as conn:
+    async with await psycopg.AsyncConnection.connect(
+        body["database_url"], autocommit=True
+    ) as conn:
         async with conn.cursor() as cur:
             await cur.execute("CREATE TABLE foo (x int)")
             await cur.execute("INSERT INTO foo VALUES (1)")
@@ -121,7 +123,8 @@ async def test_provision_default_ttl(api_client):
     assert r.status_code == 201
     body = r.json()
     # Default is 24 hours; allow slack for the timestamp comparison
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     expires = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
     created = datetime.fromisoformat(body["created_at"].replace("Z", "+00:00"))
     delta = expires - created
@@ -165,7 +168,9 @@ async def test_get_provision_by_id(api_client):
     )
     pid = r.json()["id"]
 
-    r = await api_client.get(f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER})
+    r = await api_client.get(
+        f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == pid
@@ -177,6 +182,7 @@ async def test_get_provision_by_id(api_client):
 @pytest.mark.asyncio
 async def test_get_provision_404(api_client):
     import uuid
+
     r = await api_client.get(
         f"/provisions/{uuid.uuid4()}", headers={"Authorization": AUTH_HEADER}
     )
@@ -214,8 +220,12 @@ async def test_delete_provision_is_idempotent(api_client):
     )
     pid = r.json()["id"]
 
-    r1 = await api_client.delete(f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER})
-    r2 = await api_client.delete(f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER})
+    r1 = await api_client.delete(
+        f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
+    )
+    r2 = await api_client.delete(
+        f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
+    )
     assert r1.status_code == 202
     assert r2.status_code == 202
     # released_at should be unchanged on the second call (COALESCE)
@@ -232,19 +242,26 @@ async def test_full_lifecycle_provision_use_release_cleanup(api_client, pg_url):
     pid = body["id"]
 
     # Write some data
-    async with await psycopg.AsyncConnection.connect(body["database_url"], autocommit=True) as conn:
+    async with await psycopg.AsyncConnection.connect(
+        body["database_url"], autocommit=True
+    ) as conn:
         async with conn.cursor() as cur:
             await cur.execute("CREATE TABLE x (a int)")
 
     # Release
-    await api_client.delete(f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER})
+    await api_client.delete(
+        f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
+    )
 
     # Run a cleanup pass directly (the background loop won't fire during the test)
-    import app.main as main_module
+    import ephemeral_agent_database.main as main_module
+
     await main_module.app.state.cleanup.run_once()
 
     # Provision is CLEANED
-    r = await api_client.get(f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER})
+    r = await api_client.get(
+        f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
+    )
     assert r.json()["status"] == "cleaned"
 
     # The tenant DB no longer exists -- connecting with the old URL fails

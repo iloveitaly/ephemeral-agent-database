@@ -1,18 +1,18 @@
 """Integration tests for Control. Exercises schema bootstrap and all CRUD paths."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.models import ProvisionStatus
+from ephemeral_agent_database.models import ProvisionStatus
 
 
 def _future(hours: int = 1) -> datetime:
-    return datetime.now(timezone.utc) + timedelta(hours=hours)
+    return datetime.now(UTC) + timedelta(hours=hours)
 
 
 def _past(seconds: int = 60) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    return datetime.now(UTC) - timedelta(seconds=seconds)
 
 
 async def _insert_sample(control, short_id: str, expires_at: datetime):
@@ -35,7 +35,8 @@ async def test_init_creates_control_db_and_schema(control):
 @pytest.mark.asyncio
 async def test_init_is_idempotent(pg_url, control):
     # Creating a second Control against the same DB should not error.
-    from app.control import Control
+    from ephemeral_agent_database.control import Control
+
     c2 = Control(pg_url)
     await c2.init()
     await c2.close()
@@ -55,6 +56,7 @@ async def test_insert_pending_creates_row_with_status_pending(control):
 @pytest.mark.asyncio
 async def test_insert_pending_rejects_duplicate_short_id(control):
     import psycopg
+
     await _insert_sample(control, "aaaaaaaaaa", _future())
     with pytest.raises(psycopg.errors.UniqueViolation):
         await _insert_sample(control, "aaaaaaaaaa", _future())
@@ -68,14 +70,16 @@ async def test_status_transitions(control):
     fresh = await control.get(row.id)
     assert fresh.status == ProvisionStatus.ACTIVE
 
-    await control.mark_releasing(row.id, released_at=datetime.now(timezone.utc))
+    await control.mark_releasing(row.id, released_at=datetime.now(UTC))
     fresh = await control.get(row.id)
     assert fresh.status == ProvisionStatus.RELEASING
     assert fresh.released_at is not None
 
     # mark_releasing again should NOT overwrite released_at (COALESCE)
     first_released = fresh.released_at
-    await control.mark_releasing(row.id, released_at=datetime.now(timezone.utc) + timedelta(hours=1))
+    await control.mark_releasing(
+        row.id, released_at=datetime.now(UTC) + timedelta(hours=1)
+    )
     fresh = await control.get(row.id)
     assert fresh.released_at == first_released
 
@@ -99,7 +103,7 @@ async def test_delete_hard_removes_row(control):
 async def test_list_all_and_count_active(control):
     r1 = await _insert_sample(control, "aaaaaaaaaa", _future())
     r2 = await _insert_sample(control, "bbbbbbbbbb", _future())
-    r3 = await _insert_sample(control, "cccccccccc", _future())
+    await _insert_sample(control, "cccccccccc", _future())
     await control.mark_active(r1.id)
     await control.mark_active(r2.id)
 
@@ -122,7 +126,7 @@ async def test_find_rows_to_cleanup_picks_expired_active(control):
 async def test_find_rows_to_cleanup_picks_releasing(control):
     r = await _insert_sample(control, "aaaaaaaaaa", _future())
     await control.mark_active(r.id)
-    await control.mark_releasing(r.id, released_at=datetime.now(timezone.utc))
+    await control.mark_releasing(r.id, released_at=datetime.now(UTC))
 
     rows = await control.find_rows_to_cleanup(pending_timeout_seconds=300)
     assert [x.id for x in rows] == [r.id]

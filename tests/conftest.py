@@ -21,10 +21,10 @@ import redis.asyncio as aioredis
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
 
-from app import constants
-from app.control import Control
-from app.provisioners.postgres import PostgresProvisioner
-from app.provisioners.redis import RedisProvisioner
+from ephemeral_agent_database import constants
+from ephemeral_agent_database.control import Control
+from ephemeral_agent_database.provisioners.postgres import PostgresProvisioner
+from ephemeral_agent_database.provisioners.redis import RedisProvisioner
 
 PG_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -53,9 +53,9 @@ def unique_prefix(monkeypatch):
     new_prefix = f"eph{suffix}"
     monkeypatch.setattr(constants, "RESOURCE_PREFIX", new_prefix)
     # Also override the constant as imported into submodules.
-    from app.provisioners import postgres as _pg
-    from app.provisioners import redis as _rd
-    from app import cleanup as _cl
+    from ephemeral_agent_database.provisioners import postgres as _pg
+    from ephemeral_agent_database.provisioners import redis as _rd
+    from ephemeral_agent_database import cleanup as _cl
     monkeypatch.setattr(_pg, "RESOURCE_PREFIX", new_prefix)
     monkeypatch.setattr(_rd, "RESOURCE_PREFIX", new_prefix)
     # cleanup.py does a local-scope import of RESOURCE_PREFIX inside a helper;
@@ -72,7 +72,7 @@ def unique_control_db(monkeypatch, unique_prefix):
     """
     name = f"{unique_prefix}_control"
     monkeypatch.setattr(constants, "CONTROL_DB_NAME", name)
-    from app import control as _ctrl
+    from ephemeral_agent_database import control as _ctrl
     monkeypatch.setattr(_ctrl, "CONTROL_DB_NAME", name)
     yield name
 

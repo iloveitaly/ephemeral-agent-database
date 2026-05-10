@@ -7,8 +7,8 @@ import structlog
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier, Literal
 
-from app.constants import RESOURCE_PREFIX
-from app.urls import postgres_url_with_db
+from ephemeral_agent_database.constants import RESOURCE_PREFIX
+from ephemeral_agent_database.urls import postgres_url_with_db
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +34,9 @@ class PostgresProvisioner:
 
         # Role + database are created from the cluster-default DB in autocommit
         # mode. CREATE DATABASE cannot run inside a transaction.
-        async with await AsyncConnection.connect(self.superuser_url, autocommit=True) as conn:
+        async with await AsyncConnection.connect(
+            self.superuser_url, autocommit=True
+        ) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     SQL("CREATE ROLE {role} LOGIN PASSWORD {pw}").format(
@@ -55,9 +57,7 @@ class PostgresProvisioner:
         new_db_url = postgres_url_with_db(self.superuser_url, db_name)
         async with await AsyncConnection.connect(new_db_url, autocommit=True) as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    SQL("REVOKE ALL ON SCHEMA public FROM PUBLIC")
-                )
+                await cur.execute(SQL("REVOKE ALL ON SCHEMA public FROM PUBLIC"))
                 await cur.execute(
                     SQL("GRANT ALL ON SCHEMA public TO {role}").format(
                         role=Identifier(role_name)
@@ -73,7 +73,9 @@ class PostgresProvisioner:
         Uses `DROP DATABASE ... WITH (FORCE)` (postgres 13+) to avoid the
         terminate-connections-then-drop dance.
         """
-        async with await AsyncConnection.connect(self.superuser_url, autocommit=True) as conn:
+        async with await AsyncConnection.connect(
+            self.superuser_url, autocommit=True
+        ) as conn:
             async with conn.cursor() as cur:
                 try:
                     await cur.execute(
@@ -105,9 +107,12 @@ class PostgresProvisioner:
         The control DB itself is always excluded from the sweep, since it also
         starts with the resource prefix but is not a tenant resource.
         """
-        from app.constants import CONTROL_DB_NAME
+        from ephemeral_agent_database.constants import CONTROL_DB_NAME
+
         prefix_like = f"{RESOURCE_PREFIX}_%"
-        async with await AsyncConnection.connect(self.superuser_url, autocommit=True) as conn:
+        async with await AsyncConnection.connect(
+            self.superuser_url, autocommit=True
+        ) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
                     "SELECT datname FROM pg_database WHERE datname LIKE %s",
@@ -126,7 +131,9 @@ class PostgresProvisioner:
 
     async def ping(self) -> bool:
         try:
-            async with await AsyncConnection.connect(self.superuser_url, autocommit=True) as conn:
+            async with await AsyncConnection.connect(
+                self.superuser_url, autocommit=True
+            ) as conn:
                 async with conn.cursor() as cur:
                     await cur.execute("SELECT 1")
                     await cur.fetchone()
