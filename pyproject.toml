@@ -1,8 +1,8 @@
 [project]
 name = "ephemeral-agent-database"
 version = "0.1.0"
-description = "A FastAPI service that provisions short-lived PostgreSQL databases and Redis logical users for preview environments, with automatic cleanup."
-keywords = ["postgres", "redis", "preview-environments", "testing"]
+description = "A FastAPI service that provisions short-lived PostgreSQL databases for preview environments, with automatic cleanup."
+keywords = ["postgres", "preview-environments", "testing"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

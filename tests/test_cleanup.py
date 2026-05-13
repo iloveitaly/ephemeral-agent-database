@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
+import redis.asyncio as aioredis
 from psycopg import AsyncConnection
 
 from ephemeral_agent_database.cleanup import Cleanup
@@ -37,6 +38,7 @@ async def _full_provision(
         pg_db_name=db,
         pg_role_name=role,
         redis_user_name=user,
+        redis_db_number=0,
         expires_at=expires_at,
     )
     await postgres_provisioner.provision(db, role)
@@ -49,7 +51,7 @@ async def _full_provision(
 async def test_cleanup_releases_expired_active_row(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix, pg_url
 ):
-    row, db, role, user = await _full_provision(
+    row, db, role, _ = await _full_provision(
         postgres_provisioner,
         redis_provisioner,
         control,
@@ -61,13 +63,11 @@ async def test_cleanup_releases_expired_active_row(
     processed = await cleanup.run_once()
     assert processed == 1
 
-    # Row is now CLEANED.
     fresh = await control.get(row.id)
     assert fresh.status == ProvisionStatus.CLEANED
     assert fresh.pg_dropped_at is not None
     assert fresh.redis_cleaned_at is not None
 
-    # Postgres resources gone
     async with await AsyncConnection.connect(pg_url, autocommit=True) as conn:
         async with conn.cursor() as cur:
             await cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db,))
@@ -90,7 +90,6 @@ async def test_cleanup_is_idempotent_across_passes(
     )
 
     assert await cleanup.run_once() == 1
-    # Second pass should find nothing (row is CLEANED)
     assert await cleanup.run_once() == 0
 
     fresh = await control.get(row.id)
@@ -144,7 +143,7 @@ async def test_cleanup_retries_partial_failure(
     """If the pg drop succeeds but redis fails, the row stays in RELEASING and
     a subsequent pass completes the redis side.
     """
-    row, db, role, user = await _full_provision(
+    row, _, _, _ = await _full_provision(
         postgres_provisioner,
         redis_provisioner,
         control,
@@ -153,9 +152,6 @@ async def test_cleanup_retries_partial_failure(
         _past(),
     )
 
-    # Break redis temporarily: drop the redis user out-of-band so cleanup will
-    # succeed on DELUSER (idempotent) but we still want to exercise retry.
-    # Actually for a more honest test we monkeypatch release to fail once.
     original_release = redis_provisioner.release
     calls = {"n": 0}
 
@@ -167,14 +163,12 @@ async def test_cleanup_retries_partial_failure(
 
     redis_provisioner.release = flaky_release
 
-    # First pass: pg succeeds, redis fails
     await cleanup.run_once()
     fresh = await control.get(row.id)
     assert fresh.pg_dropped_at is not None
     assert fresh.redis_cleaned_at is None
     assert fresh.status == ProvisionStatus.RELEASING
 
-    # Second pass: redis succeeds
     await cleanup.run_once()
     fresh = await control.get(row.id)
     assert fresh.redis_cleaned_at is not None
@@ -209,8 +203,6 @@ async def test_reconcile_drops_redis_orphan(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix, redis_url
 ):
     """A redis ACL user with the prefix but no control row should be torn down."""
-    import redis.asyncio as aioredis
-
     orphan_user = redis_user_name(unique_prefix, "orphanxxxx")
     await redis_provisioner.provision(orphan_user)
 
@@ -228,7 +220,7 @@ async def test_reconcile_drops_redis_orphan(
 async def test_reconcile_leaves_live_resources_alone(
     postgres_provisioner, redis_provisioner, control, cleanup, unique_prefix, pg_url
 ):
-    row, db, role, user = await _full_provision(
+    row, db, role, _ = await _full_provision(
         postgres_provisioner,
         redis_provisioner,
         control,

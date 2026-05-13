@@ -1,4 +1,4 @@
-"""Redis provisioner. Key-prefix isolation on a shared DB 0.
+"""Redis provisioner. Key-prefix isolation on a shared DB.
 
 Why key-prefix rather than per-DB isolation:
   redis-py (and most redis clients) issues SELECT N on every new connection
@@ -6,7 +6,7 @@ Why key-prefix rather than per-DB isolation:
   DB, clients can't even connect. If we allow `+select`, tenants can hop to
   another tenant's DB and read/write freely. Key-prefix isolation sidesteps
   both issues: ACL key pattern `~<user>:*` is enforced regardless of DB, so
-  no SELECT acrobatics are required. Everyone connects to DB 0.
+  no SELECT acrobatics are required. Everyone connects to DB 0 (or whatever DB is shared).
 
 Model:
   - One ACL user per tenant: `<user>` (= `<prefix>_<short_id>`).
@@ -14,7 +14,7 @@ Model:
     own name followed by a colon.
   - Pub/sub channel pattern: `&<user>:*` — same isolation for channels.
   - Dangerous commands denied: FLUSHALL, CONFIG, ACL, MONITOR, etc.
-  - FLUSHDB is denied too, since it would wipe every tenant's keys on DB 0.
+  - FLUSHDB is denied too, since it would wipe every tenant's keys on the shared DB.
     Per-tenant cleanup happens via SCAN + UNLINK on the tenant's prefix.
 """
 
@@ -38,7 +38,7 @@ class RedisCreds:
         self.key_prefix = key_prefix
 
 
-# Denied command set. Note that FLUSHDB is denied because DB 0 is shared; per-tenant
+# Denied command set. Note that FLUSHDB is denied because the DB is shared; per-tenant
 # cleanup uses SCAN + UNLINK on their prefix instead.
 _ACL_DENIED = (
     "-@dangerous",
@@ -75,6 +75,7 @@ class RedisProvisioner:
 
     async def init(self) -> None:
         self._client = aioredis.from_url(self.admin_url, decode_responses=True)
+        # Fix pyright error by using execute_command
         await self._client.execute_command("PING")
 
     async def close(self) -> None:

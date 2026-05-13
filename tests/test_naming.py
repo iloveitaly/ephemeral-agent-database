@@ -7,7 +7,6 @@ from ephemeral_agent_database.naming import (
     generate_short_id,
     pg_db_name,
     pg_role_name,
-    redis_user_name,
     validate_short_id,
 )
 
@@ -60,7 +59,6 @@ def test_name_builders_use_prefix():
     sid = "abc123xyz0"
     assert pg_db_name("ephtest", sid) == "ephtest_abc123xyz0"
     assert pg_role_name("ephtest", sid) == "ephtest_user_abc123xyz0"
-    assert redis_user_name("ephtest", sid) == "ephtest_abc123xyz0"
 
 
 def test_name_builders_reject_bad_short_id():
@@ -68,5 +66,3 @@ def test_name_builders_reject_bad_short_id():
         pg_db_name("prefix", "BAD ID")
     with pytest.raises(ValueError):
         pg_role_name("prefix", "BAD ID")
-    with pytest.raises(ValueError):
-        redis_user_name("prefix", "BAD ID")

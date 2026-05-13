@@ -1,4 +1,4 @@
-"""Hardcoded constants. Env vars stay minimal: DATABASE_URL, REDIS_URL, HTTP_BASIC_AUTH."""
+"""Hardcoded constants. Env vars stay minimal: DATABASE_URL, HTTP_BASIC_AUTH."""
 
 RESOURCE_PREFIX = "ephemeral"
 CONTROL_DB_NAME = "ephemeral_control"

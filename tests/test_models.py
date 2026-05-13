@@ -1,15 +1,15 @@
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from ephemeral_agent_database.models import (
-    ProvisionStatus,
-    ProvisionRow,
-    ProvisionRequest,
-    ProvisionResponse,
-    ProvisionSummary,
     HealthResponse,
+    ProvisionRequest,
+    ProvisionRow,
+    ProvisionStatus,
 )
+
 
 def test_provision_status_enum():
     assert ProvisionStatus.PENDING == "pending"
@@ -17,9 +17,11 @@ def test_provision_status_enum():
     assert ProvisionStatus.RELEASING == "releasing"
     assert ProvisionStatus.CLEANED == "cleaned"
 
+
 def test_provision_request_defaults():
     req = ProvisionRequest()
     assert req.ttl_hours is None
+
 
 def test_provision_request_validation():
     with pytest.raises(ValueError):
@@ -27,9 +29,10 @@ def test_provision_request_validation():
     req = ProvisionRequest(ttl_hours=12)
     assert req.ttl_hours == 12
 
+
 def test_provision_row_creation():
     uid = uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     row = ProvisionRow(
         id=uid,
         short_id="abc123xyz0",
@@ -45,8 +48,9 @@ def test_provision_row_creation():
     assert row.short_id == "abc123xyz0"
     assert row.status == ProvisionStatus.PENDING
 
+
 def test_health_response_creation():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     resp = HealthResponse(
         status="ok",
         postgres_reachable=True,

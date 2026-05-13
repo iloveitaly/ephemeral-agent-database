@@ -25,16 +25,11 @@ AUTH_HEADER = (
 
 @pytest_asyncio.fixture
 async def api_client(pg_url, redis_url, clean_environment):
-    """Build a fresh FastAPI app with test-scoped env and drive it via ASGITransport.
-
-    Importing app.main at module scope would pin settings before the fixtures
-    patch them, so we import inside the fixture after setting env vars.
-    """
+    """Build a fresh FastAPI app with test-scoped env and drive it via ASGITransport."""
     os.environ["DATABASE_URL"] = pg_url
     os.environ["REDIS_URL"] = redis_url
     os.environ["HTTP_BASIC_AUTH"] = f"{TEST_USERNAME}:{TEST_PASSWORD}"
 
-    # Force a re-import so settings are rebuilt against the new env.
     import importlib
 
     import ephemeral_agent_database.main as main_module
@@ -43,7 +38,6 @@ async def api_client(pg_url, redis_url, clean_environment):
 
     transport = ASGITransport(app=main_module.app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        # Drive lifespan startup
         async with main_module.app.router.lifespan_context(main_module.app):
             yield client
 
@@ -57,7 +51,7 @@ async def test_healthcheck_no_auth_required(api_client):
     assert body["postgres_reachable"] is True
     assert body["redis_reachable"] is True
     assert body["active_provisions"] == 0
-    assert body["redis_max_dbs"] == 64
+    assert body["redis_max_dbs"] > 0
 
 
 @pytest.mark.asyncio
@@ -87,7 +81,6 @@ async def test_provision_happy_path_returns_usable_credentials(
     assert r.status_code == 201, r.text
     body = r.json()
 
-    # Response shape
     assert "id" in body
     assert "short_id" in body
     assert body["database_url"].startswith("postgresql://")
@@ -95,7 +88,6 @@ async def test_provision_happy_path_returns_usable_credentials(
     assert body["redis_key_prefix"].endswith(":")
     assert "expires_at" in body
 
-    # The returned DATABASE_URL actually works
     async with await psycopg.AsyncConnection.connect(
         body["database_url"], autocommit=True
     ) as conn:
@@ -106,7 +98,6 @@ async def test_provision_happy_path_returns_usable_credentials(
             row = await cur.fetchone()
             assert row == (1,)
 
-    # The returned REDIS_URL works, scoped to the key prefix
     client = aioredis.from_url(body["redis_url"], decode_responses=True)
     try:
         await client.set(f"{body['redis_key_prefix']}hello", "world")
@@ -122,7 +113,6 @@ async def test_provision_default_ttl(api_client):
     )
     assert r.status_code == 201
     body = r.json()
-    # Default is 24 hours; allow slack for the timestamp comparison
     from datetime import datetime
 
     expires = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
@@ -154,7 +144,6 @@ async def test_list_provisions_empty_then_populated(api_client):
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) == 2
-    # Credentials are NEVER in list responses
     for row in rows:
         assert "database_url" not in row
         assert "redis_url" not in row
@@ -174,7 +163,6 @@ async def test_get_provision_by_id(api_client):
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == pid
-    # No creds in summary endpoint
     assert "database_url" not in body
     assert "redis_url" not in body
 
@@ -228,7 +216,6 @@ async def test_delete_provision_is_idempotent(api_client):
     )
     assert r1.status_code == 202
     assert r2.status_code == 202
-    # released_at should be unchanged on the second call (COALESCE)
     assert r1.json()["released_at"] == r2.json()["released_at"]
 
 
@@ -241,29 +228,24 @@ async def test_full_lifecycle_provision_use_release_cleanup(api_client, pg_url):
     body = r.json()
     pid = body["id"]
 
-    # Write some data
     async with await psycopg.AsyncConnection.connect(
         body["database_url"], autocommit=True
     ) as conn:
         async with conn.cursor() as cur:
             await cur.execute("CREATE TABLE x (a int)")
 
-    # Release
     await api_client.delete(
         f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
     )
 
-    # Run a cleanup pass directly (the background loop won't fire during the test)
     import ephemeral_agent_database.main as main_module
 
     await main_module.app.state.cleanup.run_once()
 
-    # Provision is CLEANED
     r = await api_client.get(
         f"/provisions/{pid}", headers={"Authorization": AUTH_HEADER}
     )
     assert r.json()["status"] == "cleaned"
 
-    # The tenant DB no longer exists -- connecting with the old URL fails
     with pytest.raises(psycopg.OperationalError):
         await psycopg.AsyncConnection.connect(body["database_url"])

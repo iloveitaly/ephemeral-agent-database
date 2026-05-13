@@ -11,7 +11,6 @@ import secrets
 SHORT_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 SHORT_ID_LENGTH = 10
 
-# Anchored, fixed length, fixed alphabet. Anything else is rejected.
 SHORT_ID_RE = re.compile(rf"^[a-z0-9]{{{SHORT_ID_LENGTH}}}$")
 
 

@@ -50,8 +50,6 @@ class Control:
             await self.pool.close()
             self.pool = None
 
-    # ----- schema bootstrap -----
-
     async def _ensure_control_db(self) -> None:
         """Connect to the server-default DB and create the control DB if missing."""
         async with await AsyncConnection.connect(
@@ -92,8 +90,6 @@ class Control:
                     )
                     """
                 )
-                # NOTE: redis_db_number is retained for schema stability but
-                # currently always 0 (key-prefix isolation on shared DB 0).
                 await cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_provisions_live_expiry
@@ -108,8 +104,6 @@ class Control:
                     """
                 )
 
-    # ----- provision creation -----
-
     async def insert_pending(
         self,
         *,
@@ -117,13 +111,13 @@ class Control:
         pg_db_name: str,
         pg_role_name: str,
         redis_user_name: str,
+        redis_db_number: int,
         expires_at: datetime,
     ) -> ProvisionRow:
         """Insert a pending row.
 
-        Redis isolation is per-key-prefix on a shared DB 0, so no pool allocation
-        is needed. The `redis_db_number` column is retained as 0 for all rows in
-        case we want to reintroduce per-DB isolation later.
+        Redis isolation is per-key-prefix on a shared DB, so no pool allocation
+        is needed. The `redis_db_number` column records which DB is being shared.
         """
         assert self.pool is not None
         async with self.pool.connection() as conn:
@@ -141,15 +135,13 @@ class Control:
                         pg_db_name,
                         pg_role_name,
                         redis_user_name,
-                        0,  # shared DB 0 for all tenants
+                        redis_db_number,
                         expires_at,
                     ),
                 )
                 row = await cur.fetchone()
                 assert row is not None
                 return _row_to_provision(row)
-
-    # ----- state transitions -----
 
     async def mark_active(self, provision_id: UUID) -> None:
         await self._set_status(provision_id, ProvisionStatus.ACTIVE)
@@ -208,8 +200,6 @@ class Control:
                     "UPDATE provisions SET status = %s WHERE id = %s",
                     (status.value, provision_id),
                 )
-
-    # ----- queries -----
 
     async def get(self, provision_id: UUID) -> ProvisionRow | None:
         assert self.pool is not None

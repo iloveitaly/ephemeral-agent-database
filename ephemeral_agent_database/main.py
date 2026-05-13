@@ -99,9 +99,6 @@ app = FastAPI(
 )
 
 
-# ---------- dependencies ----------
-
-
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -118,8 +115,6 @@ def get_redis(request: Request) -> RedisProvisioner:
     return request.app.state.redis
 
 
-# Auth dependency. HTTPBasic() extracts credentials; we compare them against
-# settings in constant time.
 _http_basic = HTTPBasic()
 
 
@@ -142,9 +137,6 @@ async def require_auth(
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
-
-
-# ---------- routes ----------
 
 
 @app.get("/healthcheck", response_model=HealthResponse)
@@ -194,21 +186,23 @@ async def provision(
     user_name = redis_user_name(RESOURCE_PREFIX, short_id)
     expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
 
-    # 1. Insert pending row.
+    from urllib.parse import urlparse
+
+    redis_db = int(urlparse(settings.redis_url).path.lstrip("/") or "0")
+
     row = await control.insert_pending(
         short_id=short_id,
         pg_db_name=db_name,
         pg_role_name=role_name,
         redis_user_name=user_name,
+        redis_db_number=redis_db,
         expires_at=expires_at,
     )
 
-    # 2. Create postgres resources.
     try:
         pg_creds = await postgres.provision(db_name, role_name)
     except Exception as e:
         logger.exception("provision_pg_failed", provision_id=str(row.id))
-        # Best-effort: try to drop what we might have half-created, then delete row.
         try:
             await postgres.release(db_name, role_name)
         except Exception:
@@ -219,12 +213,10 @@ async def provision(
             detail=f"failed to provision postgres: {e}",
         ) from e
 
-    # 3. Create redis ACL user (key-prefix isolation on shared DB 0).
     try:
         redis_creds = await redis.provision(user_name)
     except Exception as e:
         logger.exception("provision_redis_failed", provision_id=str(row.id))
-        # Roll back postgres and delete the row.
         try:
             await postgres.release(db_name, role_name)
         except Exception:
@@ -235,7 +227,6 @@ async def provision(
             detail=f"failed to provision redis: {e}",
         ) from e
 
-    # 4. Flip the row to active.
     await control.mark_active(row.id)
 
     database_url = postgres_url_with_credentials(
@@ -246,7 +237,7 @@ async def provision(
     )
     redis_url = redis_url_with_credentials(
         settings.redis_url,
-        db_number=0,
+        db_number=redis_db,
         user=redis_creds.user,
         password=redis_creds.password,
     )

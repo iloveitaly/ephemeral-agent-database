@@ -39,7 +39,6 @@ class Settings(BaseSettings):
 
     @cached_property
     def auth_password(self) -> str:
-        # split with maxsplit=1 so colons in the password survive
         return self.http_basic_auth.split(":", 1)[1]
 
 

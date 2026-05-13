@@ -27,9 +27,14 @@ from ephemeral_agent_database.provisioners.postgres import PostgresProvisioner
 from ephemeral_agent_database.provisioners.redis import RedisProvisioner
 
 PG_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
+    "TEST_DATABASE_URL",
+    os.environ.get(
+        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
+    ),
 )
-REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.environ.get(
+    "TEST_REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379")
+)
 
 
 @pytest.fixture
@@ -53,9 +58,10 @@ def unique_prefix(monkeypatch):
     new_prefix = f"eph{suffix}"
     monkeypatch.setattr(constants, "RESOURCE_PREFIX", new_prefix)
     # Also override the constant as imported into submodules.
+    from ephemeral_agent_database import cleanup as _cl
     from ephemeral_agent_database.provisioners import postgres as _pg
     from ephemeral_agent_database.provisioners import redis as _rd
-    from ephemeral_agent_database import cleanup as _cl
+
     monkeypatch.setattr(_pg, "RESOURCE_PREFIX", new_prefix)
     monkeypatch.setattr(_rd, "RESOURCE_PREFIX", new_prefix)
     # cleanup.py does a local-scope import of RESOURCE_PREFIX inside a helper;
@@ -73,6 +79,7 @@ def unique_control_db(monkeypatch, unique_prefix):
     name = f"{unique_prefix}_control"
     monkeypatch.setattr(constants, "CONTROL_DB_NAME", name)
     from ephemeral_agent_database import control as _ctrl
+
     monkeypatch.setattr(_ctrl, "CONTROL_DB_NAME", name)
     yield name
 
@@ -82,6 +89,7 @@ async def clean_environment(pg_url, redis_url, unique_prefix, unique_control_db)
     """Before AND after each test, drop any lingering resources matching the
     current prefix.
     """
+
     async def sweep():
         # Postgres: drop any ephemeral_* DB and role matching the prefix.
         async with await AsyncConnection.connect(pg_url, autocommit=True) as conn:
@@ -133,13 +141,17 @@ async def clean_environment(pg_url, redis_url, unique_prefix, unique_control_db)
 
 
 @pytest_asyncio.fixture
-async def postgres_provisioner(pg_url, clean_environment) -> AsyncIterator[PostgresProvisioner]:
+async def postgres_provisioner(
+    pg_url, clean_environment
+) -> AsyncIterator[PostgresProvisioner]:
     p = PostgresProvisioner(pg_url)
     yield p
 
 
 @pytest_asyncio.fixture
-async def redis_provisioner(redis_url, clean_environment) -> AsyncIterator[RedisProvisioner]:
+async def redis_provisioner(
+    redis_url, clean_environment
+) -> AsyncIterator[RedisProvisioner]:
     p = RedisProvisioner(redis_url)
     await p.init()
     try:

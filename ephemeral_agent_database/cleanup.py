@@ -90,11 +90,9 @@ class Cleanup:
             status=row.status,
         )
 
-        # Transition to 'releasing' the first time we touch a row.
         if row.status in (ProvisionStatus.ACTIVE, ProvisionStatus.PENDING):
             await self.control.mark_releasing(row.id, released_at=datetime.now(UTC))
 
-        # Tear down postgres if not already done.
         if row.pg_dropped_at is None:
             try:
                 await self.postgres.release(row.pg_db_name, row.pg_role_name)
@@ -103,7 +101,6 @@ class Cleanup:
             except Exception:
                 log.exception("pg_release_failed")
 
-        # Tear down redis if not already done.
         if row.redis_cleaned_at is None:
             try:
                 await self.redis.release(row.redis_user_name)
@@ -112,7 +109,6 @@ class Cleanup:
             except Exception:
                 log.exception("redis_release_failed")
 
-        # Re-read to check whether both are now terminal.
         fresh = await self.control.get(row.id)
         if (
             fresh is not None
@@ -123,27 +119,18 @@ class Cleanup:
             log.info("fully_cleaned")
 
     async def reconcile(self) -> None:
-        """Tear down orphan resources at startup.
-
-        A resource is an orphan if it exists in pg or redis but either:
-          (a) has no control row, or
-          (b) has a control row that's already past the resource's expected lifetime.
-        We use list_live_resource_names to get (a).
-        """
+        """Tear down orphan resources at startup."""
         (
             pg_expected,
             role_expected,
             redis_expected,
         ) = await self.control.list_live_resource_names()
 
-        # Postgres orphans
         try:
             orphan_dbs, orphan_roles = await self.postgres.list_orphans(
                 pg_expected, role_expected
             )
             for db_name in orphan_dbs:
-                # We may not know the matching role name. Drop the DB; the role
-                # may be attached to nothing and will be swept below.
                 try:
                     await self.postgres.release(
                         db_name, role_name=_guess_role_for_db(db_name)
@@ -155,8 +142,6 @@ class Cleanup:
                 if role_name in role_expected:
                     continue
                 try:
-                    # Role-only drop: release() does both db and role, but the
-                    # db is already gone here. We use a bare DROP ROLE.
                     await _drop_role_only(self.postgres, role_name)
                     logger.info("reconcile_pg_orphan_role_dropped", role=role_name)
                 except Exception:
@@ -164,7 +149,6 @@ class Cleanup:
         except Exception:
             logger.exception("reconcile_pg_failed")
 
-        # Redis orphans
         try:
             orphan_users = await self.redis.list_orphan_users(redis_expected)
             for user in orphan_users:
@@ -181,13 +165,12 @@ def _guess_role_for_db(db_name: str) -> str:
     """Derive the conventional role name from a db name. Used only for reconcile
     where we've lost the control-row linkage.
     """
-    # ephemeral_<id> -> ephemeral_user_<id>
     from ephemeral_agent_database.constants import RESOURCE_PREFIX
 
     if db_name.startswith(f"{RESOURCE_PREFIX}_"):
         short_id = db_name[len(RESOURCE_PREFIX) + 1 :]
         return f"{RESOURCE_PREFIX}_user_{short_id}"
-    return db_name  # best effort
+    return db_name
 
 
 async def _drop_role_only(postgres: PostgresProvisioner, role_name: str) -> None:
