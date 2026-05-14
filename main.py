@@ -1,5 +1,7 @@
 import os
+
 import uvicorn
+
 from ephemeral_agent_database.main import app
 
 if __name__ == "__main__":
