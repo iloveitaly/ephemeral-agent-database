@@ -139,12 +139,18 @@ async def require_auth(
     return credentials.username
 
 
-@app.get("/healthcheck", response_model=HealthResponse)
-async def healthcheck(
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/info", response_model=HealthResponse)
+async def info(
     control: Annotated[Control, Depends(get_control)],
     postgres: Annotated[PostgresProvisioner, Depends(get_postgres)],
     redis: Annotated[RedisProvisioner, Depends(get_redis)],
     request: Request,
+    _user: Annotated[str, Depends(require_auth)],
 ) -> HealthResponse:
     pg_ok = await postgres.ping()
     redis_ok = await redis.ping()

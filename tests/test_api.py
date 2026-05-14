@@ -43,8 +43,21 @@ async def api_client(pg_url, redis_url, clean_environment):
 
 
 @pytest.mark.asyncio
-async def test_healthcheck_no_auth_required(api_client):
-    r = await api_client.get("/healthcheck")
+async def test_health_is_public(api_client):
+    r = await api_client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_info_requires_auth(api_client):
+    r = await api_client.get("/info")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_info_happy_path(api_client):
+    r = await api_client.get("/info", headers={"Authorization": AUTH_HEADER})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
