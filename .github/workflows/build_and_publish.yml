@@ -12,6 +12,7 @@ env:
   PIP_RETRIES: 5
 
   DATABASE_HOST: localhost
+  REDIS_HOST: localhost
 
   # required otherwise github api calls are rate limited
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
